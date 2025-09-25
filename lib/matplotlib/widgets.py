@@ -299,6 +299,7 @@ class SliderBase(AxesWidget):
         self.connect_event("button_release_event", self._update)
         if dragging:
             self.connect_event("motion_notify_event", self._update)
+        self.connect_event("scroll_event", self._update)
         self._observers = cbook.CallbackRegistry(signals=["changed"])
 
     def _stepped_value(self, val):
@@ -529,8 +530,35 @@ class Slider(SliderBase):
 
     def _update(self, event):
         """Update the slider position."""
-        if self.ignore(event) or event.button != 1:
+        if self.ignore(event) or event.button not in [1, 'up', 'down']:
             return
+
+        if event.name == 'scroll_event' and self.ax.contains(event)[0]:
+            event.canvas.grab_mouse(self.ax)
+            val = self.val
+            if self.valstep is None:
+                val = self._value_in_bounds(val + event.step*0.01)
+            elif isinstance(self.valstep, Number):
+                newval = val + self.valstep*event.step
+                if self.valmin <= newval <= self.valmax:
+                    val = self._value_in_bounds(newval)
+            else:
+                valstep = np.asanyarray(self.valstep)
+                if valstep.ndim != 1:
+                    raise ValueError(
+                        f"valstep must have 1 dimension but has {valstep.ndim}"
+                    )
+                if event.step > 0:
+                    vals = valstep[valstep > val]
+                    val = vals[np.argmin(vals)] if \
+                        vals.size else valstep[np.argmax(valstep)]
+                else:
+                    vals = valstep[valstep < val]
+                    val = vals[np.argmax(vals)] if \
+                        vals.size else valstep[np.argmin(valstep)]
+            if val not in [None, self.val]:
+                self.set_val(val)
+            event.canvas.release_mouse(self.ax)
 
         if event.name == 'button_press_event' and self.ax.contains(event)[0]:
             self.drag_active = True
